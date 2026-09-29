@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>くりあがりのたしざんカード</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: "Hiragino Maru Gothic ProN", "Yu Gothic", sans-serif;
+    background: #fdf6e3; color: #333;
+    display: flex; align-items: center; justify-content: center;
+    user-select: none; overflow: hidden;
+  }
+  .screen { display: none; width: 100%; height: 100%; padding: 16px; }
+  .screen.active { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+
+  h1 { font-size: clamp(22px, 6vmin, 40px); margin: 0 0 24px; }
+  .row { margin: 10px 0; font-size: clamp(16px, 3.4vmin, 22px); }
+  select { font-size: 1em; padding: 6px 10px; border-radius: 8px; }
+  label { cursor: pointer; }
+  button {
+    font-family: inherit; font-size: clamp(18px, 4vmin, 26px);
+    padding: 14px 32px; margin: 8px; border: none; border-radius: 999px;
+    background: #ff8c42; color: #fff; cursor: pointer; box-shadow: 0 4px 0 #d9702c;
+  }
+  button:active { transform: translateY(2px); box-shadow: 0 2px 0 #d9702c; }
+  .hint { color: #999; font-size: clamp(13px, 2.6vmin, 17px); margin-top: 18px; }
+
+  /* 出題画面 */
+  #play { cursor: pointer; position: relative; }
+  #bar { position: absolute; top: 0; left: 0; height: 6px; background: #ff8c42; width: 0; transition: width .2s; }
+  #status {
+    position: absolute; top: 16px; width: 100%; left: 0;
+    display: flex; justify-content: space-between; padding: 0 20px;
+    font-size: clamp(14px, 3vmin, 20px); color: #a89b84;
+    font-variant-numeric: tabular-nums;
+  }
+  #card {
+    font-size: clamp(56px, 22vmin, 180px); font-weight: bold;
+    letter-spacing: .06em; line-height: 1.2; text-align: center;
+  }
+  #card .ans { color: #e14b4b; }
+  #tap { color: #bbb; font-size: clamp(13px, 2.8vmin, 18px); margin-top: 30px; }
+
+  /* 結果画面 */
+  #total { font-size: clamp(40px, 13vmin, 90px); font-weight: bold; color: #ff8c42; }
+  #total small { font-size: .4em; color: #333; }
+  #avg { font-size: clamp(16px, 3.4vmin, 22px); margin: 6px 0 18px; }
+  #list {
+    width: min(560px, 100%); max-height: 38vh; overflow-y: auto;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px;
+    font-size: clamp(13px, 2.8vmin, 17px); font-variant-numeric: tabular-nums;
+  }
+  #list div { background: #fff; border-radius: 8px; padding: 6px 8px; text-align: center; }
+  #list div.slow { background: #ffe0e0; color: #c03; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<section id="home" class="screen active">
+  <h1>くりあがりのたしざん</h1>
+  <div class="row">
+    まいすう:
+    <select id="count">
+      <option value="10">10まい</option>
+      <option value="20" selected>20まい</option>
+      <option value="45">45まい（ぜんぶ）</option>
+    </select>
+  </div>
+  <div class="row">
+    <label><input type="checkbox" id="showAns" checked> こたえも見る</label>
+  </div>
+  <button id="start">スタート</button>
+  <p class="hint">画面をタップ／スペースキーで next</p>
+</section>
+
+<section id="play" class="screen">
+  <div id="bar"></div>
+  <div id="status"><span id="prog"></span><span id="clock">0.0 びょう</span></div>
+  <div id="card"></div>
+  <div id="tap">タップでつぎへ</div>
+</section>
+
+<section id="result" class="screen">
+  <h1>おつかれさま！</h1>
+  <div id="total"></div>
+  <div id="avg"></div>
+  <div id="list"></div>
+  <div>
+    <button id="again">もういっかい</button>
+    <button id="home2" style="background:#8bb; box-shadow:0 4px 0 #6a9a9a;">せっていへ</button>
+  </div>
+</section>
+
+<script>
+const ALL = [];
+for (let a = 1; a <= 9; a++) for (let b = 1; b <= 9; b++) if (a + b >= 10) ALL.push([a, b]);
+
+const $ = id => document.getElementById(id);
+let queue = [], i = 0, phase = 'q', withAns = true;
+let t0 = 0, qStart = 0, times = [], timer = null;
+
+function show(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  $(name).classList.add('active');
+}
+
+function start() {
+  withAns = $('showAns').checked;
+  const n = +$('count').value;
+  queue = ALL.slice().sort(() => Math.random() - 0.5).slice(0, n);
+  i = 0; phase = 'q'; times = [];
+  t0 = qStart = performance.now();
+  clearInterval(timer);
+  timer = setInterval(() => {
+    $('clock').textContent = ((performance.now() - t0) / 1000).toFixed(1) + ' びょう';
+  }, 50);
+  show('play');
+  render();
+}
+
+function render() {
+  const [a, b] = queue[i];
+  const tail = (phase === 'a') ? `<span class="ans">${a + b}</span>` : '?';
+  $('card').innerHTML = `${a} + ${b} = ${tail}`;
+  $('prog').textContent = `${i + 1} / ${queue.length}`;
+  $('bar').style.width = (i / queue.length * 100) + '%';
+  $('tap').textContent = (phase === 'q' && withAns) ? 'タップでこたえ' : 'タップでつぎへ';
+}
+
+function advance() {
+  if ($('play').classList.contains('active') === false) return;
+  const now = performance.now();
+  if (phase === 'q') {
+    times.push({ q: queue[i], t: (now - qStart) / 1000 });
+    if (withAns) { phase = 'a'; render(); return; }
+  }
+  i++;
+  if (i >= queue.length) return finish(now);
+  phase = 'q'; qStart = performance.now();
+  render();
+}
+
+function finish(now) {
+  clearInterval(timer);
+  const total = (now - t0) / 1000;
+  $('total').innerHTML = total.toFixed(1) + '<small> びょう</small>';
+  $('avg').textContent = `1もんあたり ${(total / queue.length).toFixed(2)} びょう`;
+  const sorted = times.slice().sort((x, y) => y.t - x.t);
+  const slow = new Set(sorted.slice(0, 3).map(o => o.q.join('+')));
+  $('list').innerHTML = times.map(o => {
+    const key = o.q.join('+');
+    return `<div class="${slow.has(key) ? 'slow' : ''}">${o.q[0]}+${o.q[1]}=${o.q[0] + o.q[1]}<br>${o.t.toFixed(1)}s</div>`;
+  }).join('');
+  show('result');
+}
+
+$('start').onclick = start;
+$('again').onclick = start;
+$('home2').onclick = () => show('home');
+$('play').addEventListener('click', advance);
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' || e.code === 'Enter' || e.code === 'ArrowRight') {
+    e.preventDefault();
+    if ($('play').classList.contains('active')) advance();
+    else if ($('home').classList.contains('active')) start();
+  }
+});
+</script>
+</body>
+</html>
